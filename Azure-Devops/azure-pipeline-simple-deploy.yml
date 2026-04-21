@@ -1,0 +1,61 @@
+trigger: none
+
+pool:
+  vmImage: 'ubuntu-latest'
+
+# Pipeline variables - set these in Azure DevOps UI:
+# Pipelines → Edit → Variables → + New variable
+# Variable 1: tenantId = <your-tenant-id>
+# Variable 2: clientId = <your-workload-identity-client-id>
+
+variables:
+  kubernetesServiceConnection: 'aks-service-connection'  # Your K8s connection
+  namespace: 'production'
+  helmChartPath: 'Assignment/azure-vote-chart-simple'
+
+stages:
+  - stage: Deploy
+    jobs:
+      - job: DeployApp
+        steps:
+          - checkout: self
+
+          # Update Helm dependencies
+          - task: Bash@3
+            displayName: 'Update Helm Dependencies'
+            inputs:
+              targetType: 'inline'
+              workingDirectory: '$(helmChartPath)'
+              script: |
+                rm -rf charts/ Chart.lock
+                helm dependency update
+
+          # Deploy with Helm
+          - task: HelmDeploy@0
+            displayName: 'Deploy to AKS'
+            inputs:
+              connectionType: 'Kubernetes Service Connection'
+              kubernetesServiceConnection: '$(kubernetesServiceConnection)'
+              namespace: '$(namespace)'
+              command: 'upgrade'
+              chartType: 'FilePath'
+              chartPath: '$(helmChartPath)'
+              releaseName: 'azure-vote'
+              install: true
+              waitForExecution: true
+              arguments: '--create-namespace --timeout 10m'
+              overrideValues: |
+                image.repository=acrdevsecopsdemo.azurecr.io/azure-vote
+                image.tag=v1
+                keyVault.name=kvdevsecopsdemo
+                keyVault.tenantId=$(tenantId)
+                keyVault.clientId=$(clientId)
+
+          # Get Service URL
+          - task: Kubernetes@1
+            displayName: 'Get Application URL'
+            inputs:
+              connectionType: 'Kubernetes Service Connection'
+              kubernetesServiceConnection: '$(kubernetesServiceConnection)'
+              command: 'get'
+              arguments: 'svc azure-vote'
