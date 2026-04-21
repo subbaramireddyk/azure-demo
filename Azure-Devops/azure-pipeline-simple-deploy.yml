@@ -59,3 +59,25 @@ stages:
               kubernetesServiceConnection: '$(kubernetesServiceConnection)'
               command: 'get'
               arguments: 'svc azure-vote'
+
+          # Test Application Reachability
+          - task: Bash@3
+            displayName: 'Test Application is Reachable'
+            inputs:
+              targetType: 'inline'
+              script: |
+                # Get LoadBalancer IP
+                EXTERNAL_IP=$(kubectl get svc azure-vote -n $(namespace) -o jsonpath='{.status.loadBalancer.ingress[0].ip}')
+
+                if [ -n "$EXTERNAL_IP" ]; then
+                  echo "Application URL: http://$EXTERNAL_IP"
+
+                  # Test with curl
+                  if curl -s http://$EXTERNAL_IP > /dev/null; then
+                    echo "✅ Application is REACHABLE!"
+                  else
+                    echo "⚠️ Application not reachable yet"
+                  fi
+                else
+                  echo "⚠️ LoadBalancer IP not assigned yet"
+                fi
