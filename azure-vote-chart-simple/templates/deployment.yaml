@@ -1,0 +1,46 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: azure-vote
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: azure-vote
+  template:
+    metadata:
+      labels:
+        app: azure-vote
+        azure.workload.identity/use: "true"
+    spec:
+      serviceAccountName: app-service-account
+      containers:
+      - name: azure-vote
+        image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+        ports:
+        - containerPort: 80
+        env:
+        - name: REDIS
+          value: "azure-vote-redis-master"
+        - name: REDIS_PWD
+          valueFrom:
+            secretKeyRef:
+              name: azure-vote-secrets
+              key: redis-password
+        - name: TITLE
+          value: {{ .Values.config.title | quote }}
+        - name: VOTE1VALUE
+          value: {{ .Values.config.vote1 | quote }}
+        - name: VOTE2VALUE
+          value: {{ .Values.config.vote2 | quote }}
+        volumeMounts:
+        - name: secrets-store
+          mountPath: "/mnt/secrets-store"
+          readOnly: true
+      volumes:
+      - name: secrets-store
+        csi:
+          driver: secrets-store.csi.k8s.io
+          readOnly: true
+          volumeAttributes:
+            secretProviderClass: azure-vote-spc
