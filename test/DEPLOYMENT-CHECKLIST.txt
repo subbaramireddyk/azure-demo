@@ -1,0 +1,178 @@
+================================================================================
+AZURE AKS DEVSECOPS DEPLOYMENT CHECKLIST
+================================================================================
+
+Complete these steps before deploying your infrastructure and application:
+
+================================================================================
+PREREQUISITE: SETUP SELF-HOSTED AGENT POOL
+================================================================================
+
+   The pipelines require a self-hosted agent pool since Azure DevOps free tier
+   does not support Microsoft-hosted agents for private repositories.
+
+   Follow the complete manual setup guide:
+   - See: AGENT-SETUP-MANUAL.md
+
+   Quick summary:
+   1. Create agent pool 'az-agentpool' in Azure DevOps
+   2. Create Personal Access Token (PAT) with Agent Pools permissions
+   3. Install agent on a Linux VM (Azure VM, local VM, or WSL2)
+   4. Install required tools: Azure CLI, kubectl, Helm, Terraform
+   5. Verify agent shows as Online in Azure DevOps
+
+   This must be completed BEFORE running pipelines.
+
+================================================================================
+1. UPDATE SERVICE CONNECTION NAMES
+================================================================================
+
+   File: azure-pipelines-iac.yml
+   - Line 29: Replace '<Your-Service-Connection-Name>' with your Azure DevOps service connection name
+
+   File: azure-pipelines-cd.yml
+   - Line 57: Replace '<Your-Service-Connection-Name>' with your Azure DevOps service connection name
+
+================================================================================
+2. SET AZURE AD TENANT ID
+================================================================================
+
+   File: terraform/terraform.tfvars
+   - Line 16: Replace '<your-tenant-id>' with your Azure AD Tenant ID
+
+   How to get your Tenant ID:
+   - Run: az account show --query tenantId -o tsv
+   - Or: Azure Portal > Azure Active Directory > Properties > Tenant ID
+
+================================================================================
+3. RUN BOOTSTRAP SCRIPT TO CREATE REMOTE STATE STORAGE
+================================================================================
+
+   Steps:
+   a) Navigate to bootstrap folder:
+      cd bootstrap
+
+   b) Run the script:
+      bash create-tfstate-storage.sh
+
+   c) Copy the output values (Storage Account name, Container, Resource Group)
+
+================================================================================
+4. UPDATE BACKEND CONFIGURATION WITH STORAGE ACCOUNT NAME
+================================================================================
+
+   File: terraform/backend.tf
+   - Line 12: Replace 'sttfstatedemo' with the actual storage account name from step 3
+
+   Example:
+   storage_account_name = "sttfstatedemo12345"  // Use the value from bootstrap script
+
+================================================================================
+5. VERIFY RESOURCE NAMES ARE GLOBALLY UNIQUE
+================================================================================
+
+   File: terraform/terraform.tfvars
+
+   Check these resource names (must be globally unique):
+   - Line 5:  acr_name = "acrdevsecopsdemo"
+   - Line 15: keyvault_name = "kvdevsecopsdemo"
+   - Line 20: storage_name = "stdevsecopsdemo"
+
+   If any name is already taken in Azure, update with a unique suffix:
+   Example: acrdevsecopsdemo -> acrdevsecopsdemo01
+
+================================================================================
+6. VERIFY AGENT POOL NAME
+================================================================================
+
+   The pipelines are configured to use the agent pool 'az-agentpool'.
+
+   File: azure-pipelines-iac.yml
+   - Line 10: pool.name = 'az-agentpool'
+
+   File: azure-pipelines-cd.yml
+   - Line 25: pool.name = 'az-agentpool'
+
+   If you used a different name during agent setup (see AGENT-SETUP-MANUAL.md),
+   update these files with your actual agent pool name.
+
+================================================================================
+7. DEPLOYMENT WORKFLOW
+================================================================================
+
+   After completing the prerequisite and steps 1-6:
+
+   STEP 1: Deploy Infrastructure
+   ------------------------------
+   - Push changes to master branch under terraform/* folder
+   - This triggers: azure-pipelines-iac.yml
+   - Pipeline will:
+     a) Install Terraform (if needed)
+     b) Run terraform init
+     c) Run terraform plan
+     d) Wait for manual approval
+     e) Run terraform apply
+   - Note the outputs: AKS cluster name, ACR login server, etc.
+
+   STEP 2: Deploy Application
+   ---------------------------
+   - Manually trigger: azure-pipelines-cd.yml
+   - Provide runtime parameters:
+     * Resource Group Name (from IaC outputs)
+     * AKS Cluster Name (from IaC outputs)
+     * ACR Login Server (from IaC outputs)
+     * Image Tag (build number or 'latest')
+   - Pipeline will:
+     a) Install Helm (if needed)
+     b) Get AKS credentials
+     c) Deploy Helm chart
+     d) Validate deployment with rollout status
+
+================================================================================
+8. POST-DEPLOYMENT VERIFICATION
+================================================================================
+
+   After successful deployment:
+
+   a) Verify AKS cluster:
+      az aks get-credentials --resource-group <rg-name> --name <aks-name>
+      kubectl get nodes
+      kubectl get pods -n default
+
+   b) Check azure-vote deployment:
+      kubectl get deployment azure-vote -n default
+      kubectl get svc azure-vote -n default
+
+   c) Get service external IP (if LoadBalancer):
+      kubectl get svc azure-vote -n default -o jsonpath='{.status.loadBalancer.ingress[0].ip}'
+
+   d) Access the application:
+      http://<external-ip>
+
+================================================================================
+9. TROUBLESHOOTING
+================================================================================
+
+   If deployment fails:
+
+   - Check Azure DevOps pipeline logs for errors
+   - Verify service connection has proper permissions
+   - Check Terraform state: terraform state list
+   - Verify AKS cluster status: az aks show -g <rg> -n <aks-name>
+   - Check pod logs: kubectl logs <pod-name> -n default
+   - Review pipeline variables and parameters
+
+================================================================================
+OPTIONAL ENHANCEMENTS (NOT REQUIRED FOR ASSESSMENT)
+================================================================================
+
+   - Enable Ingress (set ingress.enabled=true in values.yaml)
+   - Install NGINX Ingress Controller in Terraform
+   - Add Azure Monitor Container Insights
+   - Enable network policies
+   - Add CI pipeline for Docker build and ACR push
+   - Configure multi-environment (dev/staging/prod)
+
+================================================================================
+END OF CHECKLIST
+================================================================================

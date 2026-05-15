@@ -1,0 +1,5 @@
+ingress:
+workloadIdentityClientId: "<workload-identity-client-id>"
+keyvaultName: "<keyvault-name>"
+tenantId: "<tenant-id>"
+redisPassword: "<redis-password>"

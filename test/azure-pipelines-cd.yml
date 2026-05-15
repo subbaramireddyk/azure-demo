@@ -1,0 +1,75 @@
+
+trigger: none
+
+parameters:
+  - name: resourceGroup
+    displayName: 'Resource Group Name'
+    type: string
+    default: 'rg-demo'
+
+  - name: aksClusterName
+    displayName: 'AKS Cluster Name'
+    type: string
+    default: 'aks-demo'
+
+  - name: acrLoginServer
+    displayName: 'ACR Login Server'
+    type: string
+    default: 'acrdemo.azurecr.io'
+
+  - name: imageTag
+    displayName: 'Image Tag (Build Number)'
+    type: string
+    default: 'latest'
+
+pool:
+  name: 'az-agentpool' # Replace with your self-hosted agent pool name
+
+variables:
+  RESOURCE_GROUP: ${{ parameters.resourceGroup }}
+  AKS_CLUSTER_NAME: ${{ parameters.aksClusterName }}
+  ACR_LOGIN_SERVER: ${{ parameters.acrLoginServer }}
+  IMAGE_TAG: ${{ parameters.imageTag }}
+
+stages:
+  - stage: Release
+    displayName: 'Release Stage'
+    jobs:
+      - job: ReleaseToAKS
+        displayName: 'Release to AKS'
+        # pool is defined at the pipeline level for consistency
+        steps:
+          - checkout: self
+            displayName: 'Checkout source code'
+
+          - script: |
+              if ! command -v helm >/dev/null 2>&1; then
+                echo "Helm not found, installing..."
+                curl -fsSL https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3 | bash
+              else
+                echo "Helm already installed: $(helm version --short)"
+              fi
+              helm version
+            displayName: 'Install Helm if Needed'
+
+          - task: AzureCLI@2
+            displayName: 'Get AKS Credentials'
+            inputs:
+              azureSubscription: '<Your-Service-Connection-Name>'
+              scriptType: bash
+              scriptLocation: inlineScript
+              inlineScript: |
+                az aks get-credentials --resource-group $(RESOURCE_GROUP) --name $(AKS_CLUSTER_NAME) --overwrite-existing
+
+          - script: |
+              helm upgrade --install azure-vote ./azure-vote-chart \
+                --namespace default \
+                --set image.repository=$(ACR_LOGIN_SERVER)/azure-vote \
+                --set image.tag=$(IMAGE_TAG)
+            displayName: 'Helm Deploy'
+
+          - script: |
+              echo "Waiting for deployment to be ready..."
+              kubectl rollout status deployment/azure-vote -n default --timeout=300s
+              echo "Deployment successful!"
+            displayName: 'Post-Deployment Validation'

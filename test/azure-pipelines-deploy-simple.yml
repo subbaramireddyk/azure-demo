@@ -1,0 +1,121 @@
+# Azure Pipeline - Simple Deploy to AKS (No Helm)
+# Deploys using azure-vote-all-in-one-redis.yaml
+
+trigger: none  # Manual trigger only
+
+pool:
+  vmImage: 'ubuntu-latest'
+
+variables:
+  resourceGroup: 'rg-aks-devsecops-demo'
+  aksCluster: 'aks-devsecops-demo'
+  azureServiceConnection: 'azure-service-connection'  # UPDATE THIS!
+
+stages:
+  - stage: Deploy
+    displayName: 'Deploy to AKS'
+    jobs:
+      - job: DeployApp
+        displayName: 'Deploy Azure Vote'
+        steps:
+          # Checkout code
+          - checkout: self
+
+          # Get AKS credentials
+          - task: AzureCLI@2
+            displayName: 'Connect to AKS'
+            inputs:
+              azureSubscription: '$(azureServiceConnection)'
+              scriptType: 'bash'
+              scriptLocation: 'inlineScript'
+              inlineScript: |
+                echo "Connecting to AKS cluster..."
+                az aks get-credentials \
+                  --resource-group $(resourceGroup) \
+                  --name $(aksCluster) \
+                  --overwrite-existing
+
+                echo "✅ Connected to AKS cluster: $(aksCluster)"
+                kubectl get nodes
+
+          # Deploy application
+          - task: Bash@3
+            displayName: 'Deploy Application'
+            inputs:
+              targetType: 'inline'
+              script: |
+                echo "=========================================="
+                echo "Deploying Azure Vote Application"
+                echo "=========================================="
+
+                kubectl apply -f Assignment/azure-vote-all-in-one-redis.yaml
+
+                echo "✅ Application deployed"
+
+          # Wait for deployment
+          - task: Bash@3
+            displayName: 'Wait for Deployment Ready'
+            inputs:
+              targetType: 'inline'
+              script: |
+                echo "Waiting for backend deployment..."
+                kubectl rollout status deployment/azure-vote-back --timeout=300s
+
+                echo "Waiting for frontend deployment..."
+                kubectl rollout status deployment/azure-vote-front --timeout=300s
+
+                echo "✅ All deployments ready!"
+
+          # Get application URL
+          - task: Bash@3
+            displayName: 'Get Application URL'
+            inputs:
+              targetType: 'inline'
+              script: |
+                echo "=========================================="
+                echo "Deployment Information"
+                echo "=========================================="
+
+                # Show all resources
+                kubectl get all
+
+                echo ""
+                echo "=========================================="
+                echo "Waiting for LoadBalancer IP..."
+                echo "=========================================="
+
+                # Wait for external IP
+                EXTERNAL_IP=""
+                for i in {1..60}; do
+                  EXTERNAL_IP=$(kubectl get svc azure-vote-front -o jsonpath='{.status.loadBalancer.ingress[0].ip}')
+                  if [ -n "$EXTERNAL_IP" ]; then
+                    break
+                  fi
+                  echo "Waiting... ($i/60)"
+                  sleep 5
+                done
+
+                if [ -n "$EXTERNAL_IP" ]; then
+                  echo ""
+                  echo "=========================================="
+                  echo "✅ Deployment Successful!"
+                  echo "=========================================="
+                  echo "Application URL: http://$EXTERNAL_IP"
+                  echo "=========================================="
+                else
+                  echo ""
+                  echo "⚠️ LoadBalancer IP not yet assigned"
+                  echo "Check manually: kubectl get svc azure-vote-front"
+                fi
+
+          # Show logs
+          - task: Bash@3
+            displayName: 'Show Application Logs'
+            condition: always()
+            inputs:
+              targetType: 'inline'
+              script: |
+                echo "=========================================="
+                echo "Frontend Application Logs (last 30 lines)"
+                echo "=========================================="
+                kubectl logs -l app=azure-vote-front --tail=30 || echo "No logs available"

@@ -1,0 +1,88 @@
+# Docker
+# Build and push an image to Azure Container Registry
+# https://docs.microsoft.com/azure/devops/pipelines/languages/docker
+
+trigger:
+ paths:
+   include:
+     - azure-vote/*
+
+resources:
+- repo: self
+
+variables:
+  # Container registry service connection established during pipeline creation
+  dockerRegistryServiceConnection: '6a9946d7-bc56-45de-a59f-f5c2a53bd0e5'
+  imageRepository: 'assignment'
+  containerRegistry: 'subba.azurecr.io'
+  dockerfilePath: '$(Build.SourcesDirectory)/azure-vote/Dockerfile'
+  tag: '$(Build.BuildId)'
+
+pool: 
+  name: az-agentpool
+
+stages:
+- stage: Build
+  displayName: Build
+  jobs:
+  - job: Build
+    displayName: Build
+    steps:
+    - task: Docker@2
+      displayName: Build an image
+      inputs:
+        containerRegistry: '$(dockerRegistryServiceConnection)'
+        repository: '$(imageRepository)'
+        command: 'build'
+        Dockerfile: '**/Dockerfile'
+        tags: '$(tag)'
+
+- stage: Scan
+  displayName: Scan with Trivy
+  dependsOn: Build
+  jobs:
+  - job: TrivyScan
+    displayName: Trivy Image Scan
+    steps:
+    - script: |
+        set -e
+        IMAGE_NAME=$(containerRegistry)/$(imageRepository):$(tag)
+        echo "Scanning image $IMAGE_NAME"
+        trivy image --severity CRITICAL --format table --output trivy-report.txt $IMAGE_NAME
+      displayName: 'Run Trivy image scan'
+    - task: PublishBuildArtifacts@1
+      displayName: 'Publish Security Report'
+      inputs:
+        PathtoPublish: 'trivy-report.txt'
+        ArtifactName: 'Trivy Inventory'
+        publishLocation: 'Container'
+
+- stage: Push
+  displayName: Push
+  dependsOn: Scan
+  jobs:
+  - job: Push
+    displayName: Push
+    steps:
+    - task: Docker@2
+      displayName: Push the image
+      inputs:
+        containerRegistry: '$(dockerRegistryServiceConnection)'
+        repository: '$(imageRepository)'
+        command: 'push'
+        tags: '$(tag)'
+
+- stage: Cleanup
+  displayName: Cleanup Docker Images
+  dependsOn: Push
+  jobs:
+  - job: Cleanup
+    displayName: Cleanup Docker Images
+    steps:
+    - script: |
+        IMAGE_NAME=$(containerRegistry)/$(imageRepository):$(tag)
+        echo "Cleaning up image $IMAGE_NAME"
+        docker rmi $IMAGE_NAME || true
+      displayName: 'Remove Docker image from agent'
+
+      

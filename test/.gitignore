@@ -1,0 +1,10 @@
+# Terraform
+terraform/.terraform/
+terraform/*.tfstate
+terraform/*.tfstate.*
+terraform/.terraform.lock.hcl
+terraform/crash.log
+terraform/crash.*.log
+# Uncomment if you want to ignore variable files
+# terraform/terraform.tfvars
+# terraform/*.auto.tfvars

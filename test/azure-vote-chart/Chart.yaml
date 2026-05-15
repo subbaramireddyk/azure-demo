@@ -1,0 +1,9 @@
+apiVersion: v2
+name: azure-vote
+version: 0.1.0
+description: A Helm chart for the Azure Vote application
+appVersion: "1.0"
+dependencies:
+  - name: redis
+    version: "18.3.2"
+    repository: "https://charts.bitnami.com/bitnami"

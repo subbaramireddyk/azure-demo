@@ -1,0 +1,36 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: azure-vote
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: azure-vote
+  template:
+    metadata:
+      labels:
+        app: azure-vote
+        azure.workload.identity/use: "true"
+    spec:
+      serviceAccountName: azure-vote-sa
+      containers:
+        - name: azure-vote
+          image: "azure-vote:latest"
+          ports:
+            - containerPort: 80
+          env:
+            - name: REDIS_HOST
+              value: "redis"
+            - name: REDIS_PORT
+              value: "6379"
+            - name: SECRET_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: azure-vote-secrets-k8s
+                  key: secret-key
+            - name: REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: azure-vote-secrets-k8s
+                  key: redis-password

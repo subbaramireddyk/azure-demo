@@ -1,0 +1,99 @@
+trigger: none
+
+pool:
+  vmImage: 'ubuntu-latest'
+
+# Pipeline variables - set these in Azure DevOps UI:
+# Pipelines → Edit → Variables → + New variable
+# Variable 1: tenantId = <your-tenant-id>
+# Variable 2: clientId = <your-workload-identity-client-id>
+
+variables:
+  kubernetesServiceConnection: 'aks-service-connection'  # Your K8s connection
+  namespace: 'production'
+  helmChartPath: 'Assignment/azure-vote-chart-simple'
+
+stages:
+  - stage: Deploy
+    jobs:
+      - job: DeployApp
+        steps:
+          - checkout: self
+
+          # Debug: Check directory structure
+          - task: Bash@3
+            displayName: 'Debug - Check Directory'
+            inputs:
+              targetType: 'inline'
+              script: |
+                echo "Current directory:"
+                pwd
+                echo ""
+                echo "Build.SourcesDirectory: $(Build.SourcesDirectory)"
+                echo ""
+                echo "Listing Assignment directory:"
+                ls -la Assignment/
+                echo ""
+                echo "Checking for chart directory:"
+                ls -la Assignment/azure-vote-chart-simple/ || echo "Directory not found!"
+
+          # Update Helm dependencies
+          - task: Bash@3
+            displayName: 'Update Helm Dependencies'
+            inputs:
+              targetType: 'inline'
+              workingDirectory: '$(Build.SourcesDirectory)/Assignment/azure-vote-chart-simple'
+              script: |
+                rm -rf charts/ Chart.lock
+                helm dependency update
+                ls -la
+
+          # Deploy with Helm
+          - task: HelmDeploy@0
+            displayName: 'Deploy to AKS'
+            inputs:
+              connectionType: 'Kubernetes Service Connection'
+              kubernetesServiceConnection: '$(kubernetesServiceConnection)'
+              namespace: '$(namespace)'
+              command: 'upgrade'
+              chartType: 'FilePath'
+              chartPath: '$(helmChartPath)'
+              releaseName: 'azure-vote'
+              install: true
+              waitForExecution: true
+              arguments: '--create-namespace --timeout 10m'
+              valueFile: '$(helmChartPath)/values.yaml'
+              overrideValues: |
+                keyVault.tenantId=$(tenantId)
+                keyVault.clientId=$(clientId)
+
+          # Get Service URL
+          - task: Kubernetes@1
+            displayName: 'Get Application URL'
+            inputs:
+              connectionType: 'Kubernetes Service Connection'
+              kubernetesServiceConnection: '$(kubernetesServiceConnection)'
+              command: 'get'
+              arguments: 'svc azure-vote'
+
+          # Test Application Reachability
+          - task: Bash@3
+            displayName: 'Test Application is Reachable'
+            inputs:
+              targetType: 'inline'
+              script: |
+                # Get LoadBalancer IP
+                EXTERNAL_IP=$(kubectl get svc azure-vote -n $(namespace) -o jsonpath='{.status.loadBalancer.ingress[0].ip}')
+
+                if [ -n "$EXTERNAL_IP" ]; then
+                  echo "Application URL: http://$EXTERNAL_IP"
+
+                  # Test with curl
+                  if curl -s http://$EXTERNAL_IP > /dev/null; then
+                    echo "✅ Application is REACHABLE!"
+                  else
+                    echo "⚠️ Application not reachable yet"
+                  fi
+                else
+                  echo "⚠️ LoadBalancer IP not assigned yet"
+                fi

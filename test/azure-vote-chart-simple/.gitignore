@@ -1,0 +1,30 @@
+# Helm chart dependencies (downloaded via helm dependency update)
+charts/
+*.tgz
+
+# Helm dependency lock file (optional - some people commit this)
+Chart.lock
+
+# Helm test results
+test-output.yaml
+test-results/
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Temporary files
+tmp/
+temp/
+*.tmp
+
+# Rendered templates (from helm template command)
+rendered/
+output/

@@ -1,0 +1,199 @@
+trigger:
+  branches:
+    include:
+      - main
+  paths:
+    include:
+      - Assignment/azure-vote/*
+      - Assignment/azure-vote-chart-simple/*
+
+pool:
+  vmImage: 'ubuntu-latest'
+
+variables:
+  # Azure Resources (from Terraform)
+  resourceGroup: 'rg-aks-devsecops-demo'
+  aksCluster: 'aks-devsecops-demo'
+  acrName: 'acrdevsecopsdemo'
+  keyVaultName: 'kvdevsecopsdemo'
+
+  # Deployment Configuration
+  namespace: 'voting-app'
+  helmReleaseName: 'azure-vote'
+  imageName: 'azure-vote'
+  imageTag: '$(Build.BuildId)'
+
+  # Helm Chart Path
+  helmChartPath: 'Assignment/azure-vote-chart-simple'
+
+stages:
+  # Stage 1: Build and Push Docker Image
+  - stage: Build
+    displayName: 'Build and Push Image'
+    jobs:
+      - job: BuildImage
+        displayName: 'Build Docker Image'
+        steps:
+          # Checkout code
+          - checkout: self
+
+          # Login to ACR
+          - task: AzureCLI@2
+            displayName: 'Login to ACR'
+            inputs:
+              azureSubscription: '$(azureServiceConnection)'
+              scriptType: 'bash'
+              scriptLocation: 'inlineScript'
+              inlineScript: |
+                az acr login --name $(acrName)
+
+          # Build Docker image
+          - task: Docker@2
+            displayName: 'Build Docker Image'
+            inputs:
+              command: 'build'
+              repository: '$(acrName).azurecr.io/$(imageName)'
+              dockerfile: 'Assignment/azure-vote/Dockerfile'
+              buildContext: 'Assignment/azure-vote'
+              tags: |
+                $(imageTag)
+                latest
+
+          # Push Docker image to ACR
+          - task: Docker@2
+            displayName: 'Push Image to ACR'
+            inputs:
+              command: 'push'
+              repository: '$(acrName).azurecr.io/$(imageName)'
+              tags: |
+                $(imageTag)
+                latest
+              containerRegistry: '$(acrServiceConnection)'
+
+          # Security: Scan image with Trivy
+          - task: Bash@3
+            displayName: 'Security Scan with Trivy'
+            inputs:
+              targetType: 'inline'
+              script: |
+                # Install Trivy
+                wget -qO - https://aquasecurity.github.io/trivy-repo/deb/public.key | sudo apt-key add -
+                echo "deb https://aquasecurity.github.io/trivy-repo/deb $(lsb_release -sc) main" | sudo tee -a /etc/apt/sources.list.d/trivy.list
+                sudo apt-get update
+                sudo apt-get install trivy -y
+
+                # Scan image
+                trivy image --severity HIGH,CRITICAL $(acrName).azurecr.io/$(imageName):$(imageTag)
+
+  # Stage 2: Deploy to AKS using Helm
+  - stage: Deploy
+    displayName: 'Deploy to AKS'
+    dependsOn: Build
+    condition: succeeded()
+    jobs:
+      - deployment: DeployHelm
+        displayName: 'Deploy with Helm'
+        environment: 'AKS-Production'
+        strategy:
+          runOnce:
+            deploy:
+              steps:
+                # Download Helm chart
+                - checkout: self
+
+                # Install Helm
+                - task: HelmInstaller@1
+                  displayName: 'Install Helm'
+                  inputs:
+                    helmVersionToInstall: 'latest'
+
+                # Get AKS credentials
+                - task: AzureCLI@2
+                  displayName: 'Get AKS Credentials'
+                  inputs:
+                    azureSubscription: '$(azureServiceConnection)'
+                    scriptType: 'bash'
+                    scriptLocation: 'inlineScript'
+                    inlineScript: |
+                      az aks get-credentials \
+                        --resource-group $(resourceGroup) \
+                        --name $(aksCluster) \
+                        --overwrite-existing
+
+                # Get values from Key Vault and Terraform
+                - task: AzureCLI@2
+                  displayName: 'Get Configuration from Azure'
+                  inputs:
+                    azureSubscription: '$(azureServiceConnection)'
+                    scriptType: 'bash'
+                    scriptLocation: 'inlineScript'
+                    inlineScript: |
+                      # Get Tenant ID
+                      TENANT_ID=$(az account show --query tenantId -o tsv)
+                      echo "##vso[task.setvariable variable=tenantId]$TENANT_ID"
+
+                      # Get Workload Identity Client ID (from Azure)
+                      WORKLOAD_CLIENT_ID=$(az identity show \
+                        --name aks-workload-identity \
+                        --resource-group $(resourceGroup) \
+                        --query clientId -o tsv)
+                      echo "##vso[task.setvariable variable=workloadClientId]$WORKLOAD_CLIENT_ID"
+
+                      echo "Tenant ID: $TENANT_ID"
+                      echo "Workload Identity Client ID: $WORKLOAD_CLIENT_ID"
+
+                # Install/Upgrade Helm chart
+                - task: HelmDeploy@0
+                  displayName: 'Helm Deploy Azure Vote'
+                  inputs:
+                    connectionType: 'Kubernetes Service Connection'
+                    kubernetesServiceConnection: '$(kubernetesServiceConnection)'
+                    namespace: '$(namespace)'
+                    command: 'upgrade'
+                    chartType: 'FilePath'
+                    chartPath: '$(helmChartPath)'
+                    releaseName: '$(helmReleaseName)'
+                    install: true
+                    waitForExecution: true
+                    arguments: '--create-namespace'
+                    overrideValues: |
+                      image.repository=$(acrName).azurecr.io/$(imageName)
+                      image.tag=$(imageTag)
+                      keyVault.name=$(keyVaultName)
+                      keyVault.tenantId=$(tenantId)
+                      keyVault.clientId=$(workloadClientId)
+
+                # Wait for deployment to complete
+                - task: Kubernetes@1
+                  displayName: 'Wait for Deployment'
+                  inputs:
+                    connectionType: 'Kubernetes Service Connection'
+                    kubernetesServiceConnection: '$(kubernetesServiceConnection)'
+                    namespace: '$(namespace)'
+                    command: 'wait'
+                    arguments: '--for=condition=available --timeout=300s deployment/azure-vote'
+
+                # Get service endpoint
+                - task: Kubernetes@1
+                  displayName: 'Get Service Endpoint'
+                  inputs:
+                    connectionType: 'Kubernetes Service Connection'
+                    kubernetesServiceConnection: '$(kubernetesServiceConnection)'
+                    namespace: '$(namespace)'
+                    command: 'get'
+                    arguments: 'svc azure-vote -o jsonpath="{.status.loadBalancer.ingress[0].ip}"'
+
+                # Display deployment info
+                - task: Bash@3
+                  displayName: 'Deployment Summary'
+                  inputs:
+                    targetType: 'inline'
+                    script: |
+                      echo "=========================================="
+                      echo "Deployment Summary"
+                      echo "=========================================="
+                      echo "Namespace: $(namespace)"
+                      echo "Release: $(helmReleaseName)"
+                      echo "Image: $(acrName).azurecr.io/$(imageName):$(imageTag)"
+                      echo "=========================================="
+                      kubectl get all -n $(namespace)

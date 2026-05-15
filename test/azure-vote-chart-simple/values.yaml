@@ -1,0 +1,27 @@
+# Azure Container Registry image (from Terraform: terraform output -raw acr_login_server)
+image:
+  repository: acrdevsecopsdemo.azurecr.io/azure-vote
+  tag: latest
+
+# Service settings
+service:
+  type: LoadBalancer
+  port: 80
+
+# Azure Key Vault settings (from Terraform outputs)
+keyVault:
+  name: kvdevsecopsdemo                           # From terraform.tfvars
+  tenantId: ""                                     # Run: az account show --query tenantId -o tsv
+  clientId: ""                                     # From: terraform output -raw workload_identity_client_id
+
+# App configuration
+config:
+  title: "Azure Voting App"
+  vote1: "Cats"
+  vote2: "Dogs"
+
+# Redis dependency configuration
+redis:
+  auth:
+    enabled: true
+    password: "RedisP@ssw0rd123"  # Same as Key Vault secret

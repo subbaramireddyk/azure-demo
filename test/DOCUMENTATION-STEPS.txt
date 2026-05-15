@@ -1,0 +1,597 @@
+AZURE DEVSECOPS ASSESSMENT - DOCUMENTATION STEPS
+================================================
+
+Candidate: [Your Name]
+Date: April 21, 2026
+Assessment Duration: 48 hours
+
+========================================
+SECTION 1: ARCHITECTURE OVERVIEW
+========================================
+
+Screenshot 1: Architecture Diagram
+----------------------------------
+Create/draw architecture diagram showing:
+- AKS Cluster
+- Azure Container Registry
+- Azure Key Vault
+- Azure Storage Account
+- Azure DevOps Pipeline
+- Workload Identity flow
+
+
+Screenshot 2: Components Table
+------------------------------
+Create a table with these components:
+
+Component              Resource Name           Purpose
+-------------------------------------------------------------------------
+AKS Cluster            aks-devsecops-demo     Kubernetes runtime environment
+Container Registry     acrdevsecopsdemo        Docker image storage
+Key Vault              kvdevsecopsdemo         Secrets management
+Storage Account        stdevsecopsdemo         Static assets & data persistence
+Service Connection     aks-service-connection  Azure DevOps to AKS authentication
+
+
+========================================
+SECTION 2: INFRASTRUCTURE SETUP
+========================================
+
+Screenshot 3: Terraform Files Structure
+---------------------------------------
+Command: tree terraform/
+Or: ls -R terraform/
+
+Capture: File listing showing main.tf, variables.tf, outputs.tf
+
+
+Screenshot 4: Terraform Apply Output
+------------------------------------
+Command: terraform apply
+
+Capture: Final output showing all resources created successfully
+
+
+Screenshot 5: Azure Portal - Resource Group
+-------------------------------------------
+Navigate: Azure Portal → Resource Groups → [your-rg-name]
+
+Capture: All provisioned resources in the resource group showing:
+- AKS Cluster
+- Container Registry
+- Key Vault
+- Storage Account
+- Managed Identity
+
+
+========================================
+SECTION 3: CONTAINER REGISTRY
+========================================
+
+Screenshot 6: Docker Build Command
+----------------------------------
+Command: docker build -t acrdevsecopsdemo.azurecr.io/azure-vote:latest .
+
+Working Directory: Assignment/azure-vote/
+
+Capture: Terminal showing successful build with all layers
+
+
+Screenshot 7: ACR Login and Push
+--------------------------------
+Commands:
+az acr login --name acrdevsecopsdemo
+docker push acrdevsecopsdemo.azurecr.io/azure-vote:latest
+
+Capture: Successful push output showing image pushed to registry
+
+
+Screenshot 8: Azure Portal - ACR Repositories
+---------------------------------------------
+Navigate: Azure Portal → Container Registry → acrdevsecopsdemo → Repositories
+
+Capture: azure-vote repository with latest tag visible
+
+
+========================================
+SECTION 4: AZURE KEY VAULT INTEGRATION
+========================================
+
+Screenshot 9: Key Vault Secrets Creation
+----------------------------------------
+Commands:
+az keyvault secret set --vault-name kvdevsecopsdemo --name redis-password --value "RedisP@ssw0rd123"
+az keyvault secret set --vault-name kvdevsecopsdemo --name secretKey --value "YourSecretKey123"
+
+Capture: Terminal output showing both secrets created successfully
+
+
+Screenshot 10: Azure Portal - Key Vault Secrets
+-----------------------------------------------
+Navigate: Azure Portal → Key Vault → kvdevsecopsdemo → Secrets
+
+Capture: List showing redis-password and secretKey secrets
+
+
+Screenshot 11: Workload Identity Configuration
+----------------------------------------------
+Navigate: Azure Portal → Managed Identity → [workload-identity-name] → Settings
+
+Capture: Overview page showing Client ID and Tenant ID
+
+
+Screenshot 12: SecretProviderClass YAML
+---------------------------------------
+File: Assignment/azure-vote-chart-simple/templates/secretproviderclass.yaml
+
+Capture: Code screenshot showing:
+- apiVersion: secrets-store.csi.x-k8s.io/v1
+- clientID, keyvaultName, tenantId parameters
+- objects array with redis-password and secretKey
+
+
+Screenshot 13: Deployed SecretProviderClass
+-------------------------------------------
+Command: kubectl get secretproviderclass -n production
+
+Capture: azure-vote-spc resource listed with AGE
+
+
+Screenshot 14: Kubernetes Secret Created by CSI Driver
+------------------------------------------------------
+Command: kubectl get secret azure-vote-secrets -n production -o yaml
+
+Capture: Secret showing:
+- type: Opaque
+- data section with redis-password and secret-key (base64 encoded)
+
+
+========================================
+SECTION 5: HELM CHART IMPLEMENTATION
+========================================
+
+Screenshot 15: Helm Chart Directory Structure
+---------------------------------------------
+Command: tree Assignment/azure-vote-chart-simple/
+Or: ls -R Assignment/azure-vote-chart-simple/
+
+Capture: Complete chart structure showing:
+- Chart.yaml
+- values.yaml
+- templates/ directory with all YAML files
+
+
+Screenshot 16: Chart.yaml with Redis Dependency
+-----------------------------------------------
+File: Assignment/azure-vote-chart-simple/Chart.yaml
+
+Capture: Code showing:
+- apiVersion: v2
+- name: azure-vote
+- dependencies section with Bitnami Redis chart version 19.0.2
+
+
+Screenshot 17: values.yaml Configuration
+----------------------------------------
+File: Assignment/azure-vote-chart-simple/values.yaml
+
+Capture: Key sections showing:
+- image repository and tag
+- service type: LoadBalancer
+- keyVault configuration (name, tenantId, clientId)
+- redis.auth.password configuration
+
+
+Screenshot 18: Helm Dependency Update
+-------------------------------------
+Command: helm dependency update Assignment/azure-vote-chart-simple/
+
+Capture: Output showing:
+- Downloading redis from https://charts.bitnami.com/bitnami
+- Saving chart to charts/ directory
+
+
+Screenshot 19: Chart Dependencies Downloaded
+--------------------------------------------
+Command: ls -la Assignment/azure-vote-chart-simple/charts/
+
+Capture: redis-19.0.2.tgz file present in charts/ folder
+
+
+========================================
+SECTION 6: AZURE STORAGE INTEGRATION
+========================================
+
+Screenshot 20: Storage Container Creation
+-----------------------------------------
+Command: az storage container create --name vote-assets --account-name stdevsecopsdemo --public-access blob
+
+Capture: Successful creation message with container name
+
+
+Screenshot 21: Logo Upload to Storage
+-------------------------------------
+Command: az storage blob upload --account-name stdevsecopsdemo --container-name vote-assets --name logo.png --file logo.png
+
+Capture: Upload success showing blob URL
+
+
+Screenshot 22: Azure Portal - Storage Container
+-----------------------------------------------
+Navigate: Azure Portal → Storage Account → stdevsecopsdemo → Containers → vote-assets
+
+Capture: Container showing logo.png blob with:
+- Size
+- Last modified date
+- Public access level: Blob
+
+
+Screenshot 23: Public Blob URL Accessible
+-----------------------------------------
+Command: curl -I https://stdevsecopsdemo.blob.core.windows.net/vote-assets/logo.png
+
+Capture: HTTP headers showing:
+- HTTP/1.1 200 OK
+- Content-Type: image/png
+- Content-Length
+
+
+Screenshot 24: HTML Code Using Storage URL
+------------------------------------------
+File: Assignment/azure-vote/azure-vote/templates/index.html
+
+Capture: Code showing <img> tag with Storage blob URL:
+<img src="https://stdevsecopsdemo.blob.core.windows.net/vote-assets/logo.png" alt="Azure Vote Logo">
+
+
+========================================
+SECTION 7: CI/CD PIPELINE
+========================================
+
+Screenshot 25: Pipeline Variables Configuration
+-----------------------------------------------
+Navigate: Azure DevOps → Pipelines → [Your Pipeline] → Edit → Variables
+
+Capture: Variables page showing:
+- tenantId (value hidden)
+- clientId (value hidden)
+Both marked as pipeline variables
+
+
+Screenshot 26: Kubernetes Service Connection
+--------------------------------------------
+Navigate: Azure DevOps → Project Settings → Service Connections → aks-service-connection
+
+Capture: Service connection details showing:
+- Connection type: Kubernetes
+- Server URL
+- Namespace: production
+- Authorization: Azure Subscription
+- Status: Verified (green checkmark)
+
+
+Screenshot 27: Pipeline YAML File
+---------------------------------
+File: Assignment/azure-pipeline-simple-deploy.yml
+
+Capture: Complete pipeline code showing:
+- trigger: none
+- pool: ubuntu-latest
+- variables section
+- stages with Deploy job
+- HelmDeploy task
+- Test application reachability task
+
+
+Screenshot 28: Pipeline Run - Overview
+--------------------------------------
+Navigate: Azure DevOps → Pipelines → Runs → [Latest Run]
+
+Capture: Pipeline run overview showing:
+- Run number and status (Success - green)
+- Deploy stage (green checkmark)
+- Duration
+- Triggered by
+
+
+Screenshot 29: Pipeline Run - Helm Dependency Update
+----------------------------------------------------
+Navigate: Pipeline run → Deploy stage → DeployApp job → "Update Helm Dependencies" step
+
+Capture: Output showing:
+- Deleting old charts/ and Chart.lock
+- helm dependency update command
+- Redis chart downloaded
+
+
+Screenshot 30: Pipeline Run - Helm Deploy Step
+----------------------------------------------
+Navigate: Same run → "Deploy to AKS" step
+
+Capture: Helm upgrade command output showing:
+- Release name: azure-vote
+- Namespace: production
+- Chart path
+- Status: deployed
+- Resources created/updated
+
+
+Screenshot 31: Pipeline Run - Application Reachability Test
+-----------------------------------------------------------
+Navigate: Same run → "Test Application is Reachable" step
+
+Capture: Output showing:
+- Application URL: http://[EXTERNAL-IP]
+- "✅ Application is REACHABLE!" message
+
+
+========================================
+SECTION 8: APPLICATION DEPLOYMENT
+========================================
+
+Screenshot 32: All Deployed Resources
+-------------------------------------
+Command: kubectl get all -n production
+
+Capture: Complete listing showing:
+- PODs (2 azure-vote pods + 1 redis pod)
+- SERVICEs (azure-vote LoadBalancer + redis services)
+- DEPLOYMENTs (azure-vote)
+- STATEFULSETs (redis-master)
+
+
+Screenshot 33: Azure Vote Deployment Details
+--------------------------------------------
+Command: kubectl describe deployment azure-vote -n production
+
+Capture: Deployment details showing:
+- Replicas: 2 desired, 2 available
+- StrategyType: RollingUpdate
+- Pod Template with labels
+- Image: acrdevsecopsdemo.azurecr.io/azure-vote:latest
+- ServiceAccount: app-service-account
+- Conditions: Available = True
+
+
+Screenshot 34: Azure Vote Pods Running
+--------------------------------------
+Command: kubectl get pods -n production -l app=azure-vote
+
+Capture: 2 pods in Running state with:
+- READY: 1/1
+- STATUS: Running
+- AGE
+
+
+Screenshot 35: Pod Details - Workload Identity
+----------------------------------------------
+Command: kubectl describe pod [azure-vote-pod-name] -n production
+
+Capture: Pod details showing:
+- Labels section with azure.workload.identity/use: "true"
+- Service Account: app-service-account
+- Containers section with environment variables
+- Volumes section with csi volume
+
+
+Screenshot 36: Redis StatefulSet Running
+----------------------------------------
+Command: kubectl get statefulset -n production
+
+Capture: azure-vote-redis-master StatefulSet with:
+- READY: 1/1
+- AGE
+- CONTAINERS
+- IMAGES
+
+
+Screenshot 37: Service with LoadBalancer IP
+-------------------------------------------
+Command: kubectl get svc azure-vote -n production
+
+Capture: Service details showing:
+- TYPE: LoadBalancer
+- CLUSTER-IP
+- EXTERNAL-IP (public IP address)
+- PORT(S): 80:xxxxx/TCP
+
+
+========================================
+SECTION 9: TESTING & VERIFICATION
+========================================
+
+Screenshot 38: Application Homepage - Browser
+---------------------------------------------
+URL: http://[EXTERNAL-IP]
+
+Capture: Full browser window showing:
+- Page title: "Azure Vote App"
+- Logo image from Storage
+- "Cats" button
+- "Dogs" button
+- "Reset" button
+- Current vote counts
+
+
+Screenshot 39: Browser DevTools - Network Tab
+---------------------------------------------
+Action:
+1. Open browser DevTools (F12)
+2. Go to Network tab
+3. Refresh the page
+4. Filter for "logo.png"
+
+Capture: Network request showing:
+- Request URL: https://stdevsecopsdemo.blob.core.windows.net/vote-assets/logo.png
+- Status: 200
+- Type: png
+- Size
+
+
+Screenshot 40: Vote Functionality Test
+--------------------------------------
+Action: Click "Cats" button 5 times
+
+Capture: Browser showing:
+- Cats vote count increased (e.g., "Cats - 5 | Dogs - 0")
+
+
+Screenshot 41: Reset Functionality
+----------------------------------
+Action: Click "Reset" button after voting
+
+Capture: Browser showing:
+- Votes reset to 0 (e.g., "Cats - 0 | Dogs - 0")
+
+
+Screenshot 42: Pod Environment Variables
+----------------------------------------
+Command: kubectl exec -n production [azure-vote-pod] -- env | grep -E 'REDIS|AZURE'
+
+Capture: Environment variables showing:
+- REDIS=azure-vote-redis-master
+- REDIS_PWD=[password value]
+- Other Redis/Azure related variables
+
+
+Screenshot 43: Secrets Mounted in Pod
+-------------------------------------
+Command: kubectl exec -n production [azure-vote-pod] -- ls -la /mnt/secrets-store/
+
+Capture: Directory listing showing:
+- redis-password file
+- secretKey file
+- Symlinks and timestamps
+
+
+Screenshot 44: Verify Secret Content
+------------------------------------
+Command: kubectl exec -n production [azure-vote-pod] -- cat /mnt/secrets-store/redis-password
+
+Capture: Password value matching what's in Key Vault
+
+
+Screenshot 45: ServiceAccount with Workload Identity
+----------------------------------------------------
+Command: kubectl get sa app-service-account -n production -o yaml
+
+Capture: ServiceAccount YAML showing:
+- metadata.annotations with azure.workload.identity/client-id
+- metadata.labels with azure.workload.identity/use: "true"
+
+
+Screenshot 46: Federated Identity Credential in Azure
+-----------------------------------------------------
+Navigate: Azure Portal → Managed Identity → [workload-identity-name] → Federated credentials
+
+Capture: Federated credential showing:
+- Name
+- Issuer: AKS OIDC issuer URL
+- Subject: system:serviceaccount:production:app-service-account
+- Audiences: api://AzureADTokenExchange
+
+
+Screenshot 47: Application Pod Logs
+-----------------------------------
+Command: kubectl logs -n production [azure-vote-pod] --tail=50
+
+Capture: Logs showing:
+- Flask app started successfully
+- Running on port 80
+- No Redis connection errors
+- HTTP GET/POST requests being handled
+
+
+Screenshot 48: Redis Pod Logs
+-----------------------------
+Command: kubectl logs -n production azure-vote-redis-master-0 --tail=30
+
+Capture: Redis logs showing:
+- Redis version
+- Server initialized
+- Ready to accept connections
+- Port 6379
+
+
+========================================
+SECTION 10: CONCLUSION
+========================================
+
+Summary Table to Include:
+-------------------------
+
+Key Achievements:
+✓ Infrastructure as Code - All Azure resources via Terraform
+✓ Containerization - Docker image in ACR
+✓ Secrets Management - Azure Key Vault with Workload Identity
+✓ Package Management - Helm charts with Redis dependency
+✓ Storage Integration - Azure Storage for static assets
+✓ CI/CD Pipeline - Azure DevOps automated deployment
+✓ Security - No hardcoded secrets, managed identities
+✓ High Availability - 2 application replicas
+✓ Testing - Application fully functional
+
+
+Architecture Benefits:
+1. Security - Passwordless authentication via Workload Identity
+2. Scalability - Kubernetes horizontal scaling
+3. Maintainability - Helm chart reproducibility
+4. Automation - Complete CI/CD pipeline
+5. Observability - Native Kubernetes logging
+
+
+Commands Reference to Include:
+------------------------------
+
+Connect to AKS:
+az aks get-credentials --resource-group [rg-name] --name aks-devsecops-demo
+
+Deploy via Helm:
+helm upgrade azure-vote Assignment/azure-vote-chart-simple/ --install --namespace production --create-namespace --set keyVault.tenantId=[tenant-id] --set keyVault.clientId=[client-id]
+
+Get application URL:
+kubectl get svc azure-vote -n production
+
+View logs:
+kubectl logs -f -l app=azure-vote -n production
+
+Check secrets:
+kubectl get secretproviderclass -n production
+kubectl get secret azure-vote-secrets -n production
+
+
+File Structure to Include:
+--------------------------
+Assignment/
+├── azure-vote/
+│   ├── Dockerfile
+│   └── azure-vote/
+│       ├── main.py
+│       └── templates/
+│           └── index.html
+├── azure-vote-chart/
+│   ├── Chart.yaml
+│   ├── values.yaml
+│   └── templates/
+│       ├── deployment.yaml
+│       ├── service.yaml
+│       ├── serviceaccount.yaml
+│       └── secretproviderclass.yaml
+└── azure-pipeline-simple-deploy.yml
+
+
+Resources:
+----------
+- Azure Documentation: https://docs.microsoft.com/azure
+- Helm Documentation: https://helm.sh/docs
+- Kubernetes Documentation: https://kubernetes.io/docs
+- Azure Workload Identity: https://azure.github.io/azure-workload-identity
+
+
+========================================
+END OF DOCUMENTATION STEPS
+========================================
+
+Total Screenshots Required: 48
+
+Follow these steps in order, take screenshots at each step, and paste them into your Word document with the corresponding step description.
